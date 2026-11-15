@@ -309,3 +309,6 @@ if __name__ == "__main__":
         if not sub.empty:
             sub = calculate_indicators(sub)
             check_patterns_and_alert(ticker, sub)
+    # בדיקה זמנית לוודא שהדיסקורד עובד (למחוק אחרי שרואים הודעה)
+    test_sub = calculate_indicators(df[df["Ticker"] == "NVDA"].copy())
+    send_alert("NVDA", "בדיקת חיבור", "TEST ALERT", test_sub.tail(120), test_sub["Close"].iloc[-1], test_sub["Low"].tail(20).min(), "Test", "OK", None)
