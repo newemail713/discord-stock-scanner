@@ -381,9 +381,7 @@ R : R         {rr:.2f}
         "embeds": [
             {
                 "title": f"🐍 {ticker} — {pattern_he} • Daily",
-                "description": f"**{ticker} פרץ תבנית {pattern_he} מעל התנגדות {resistance:.2f}**
-{table_text}
-[📊 פתח ב-TradingView](https://www.tradingview.com/chart/?symbol={ticker})",
+                "description": f"**{ticker} פרץ תבנית {pattern_he} מעל התנגדות {resistance:.2f}**\n{table_text}\n[📊 פתח ב-TradingView](https://tradingview.com{ticker})",
                 "color": 2278750,
                 "image": {"url": "attachment://chart.png"},
                 "footer": {"text": f"Massive Market Scanner • {curr['Date']} IL"}
