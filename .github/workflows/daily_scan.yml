@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests pandas numpy mplfinance yfinance
+          pip install requests pandas numpy mplfinance yfinance six
 
       - name: Run Market Scanner
         env:
