@@ -84,7 +84,7 @@ def bootstrap_history_fast():
     all_rows = []
     
     for orig_ticker, yf_t in zip(WATCHLIST, yf_tickers):
-        if yf_t in data.columns.levels:
+        if yf_t in data.columns.levels[0]:
             sub = data[yf_t].dropna(subset=["Close"])
             for dt, row in sub.iterrows():
                 all_rows.append({
