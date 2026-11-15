@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests pandas numpy mplfinance yfinance six
+          pip install requests pandas numpy matplotlib yfinance pyarrow
 
       - name: Run Market Scanner
         env:
@@ -34,6 +34,6 @@ jobs:
         run: |
           git config user.name "Scanner Bot"
           git config user.email "bot@users.noreply.github.com"
-          git add market_data.csv
-          git commit -m "Update daily stock prices" || exit 0
+          git add market_data.parquet
+          git commit -m "Update daily US stock market data" || exit 0
           git push
