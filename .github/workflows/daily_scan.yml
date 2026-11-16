@@ -36,6 +36,7 @@ jobs:
           python daily_scanner.py
           python highs_lows.py
           python sniper_sma.py
+          python sma20_mfi.py
 
       - name: Save updated market data
         run: |
