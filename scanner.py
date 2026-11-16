@@ -126,7 +126,7 @@ def update_daily_grouped(df):
     if new_rows:
         df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
         df.drop_duplicates(subset=["Ticker", "Date"], keep="last", inplace=True)
-        df = df.sort_values("Date").groupby("Ticker").tail(220).reset_index(drop=True)
+        df = df.sort_values("Date").groupby("Ticker").tail(250).reset_index(drop=True)
         df.to_parquet(DATA_FILE, index=False)
     return df
 
@@ -143,7 +143,7 @@ def calculate_indicators(sub_df):
     sub_df["ATR_Pct"] = (tr.rolling(14).mean() / sub_df["Close"]) * 100
     return sub_df
 
-def generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop, target, trend_coords=None):
+def generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop, target, trend_coords=None, is_box=False, next_res=None):
     plot_df = plot_df.reset_index(drop=True).copy()
     n = len(plot_df)
     curr = plot_df.iloc[-1]
@@ -200,11 +200,19 @@ def generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop
     ax_vol.bar(range(n), plot_df["Volume"], color=vol_colors, width=0.6, alpha=0.55, zorder=1)
 
     # קווי תמיכה והתנגדות אופקיים + תגיות R ו-S משמאל
-    levels = [
-        ("R", resistance, "#ef5350", "#2e161b"),
-        ("S", support, "#26a69a", "#122b28"),
-        ("S", stop, "#26a69a", "#122b28"),
-    ]
+    levels = []
+    if next_res is not None and next_res > curr["Close"]:
+        levels.append(("R", next_res, "#ef5350", "#2e161b"))
+
+    if is_box:
+        levels.append(("S", resistance, "#26a69a", "#122b28"))
+    else:
+        levels.append(("R", resistance, "#ef5350", "#2e161b"))
+
+    levels.append(("S", support, "#26a69a", "#122b28"))
+    if abs(stop - support) > (plot_df["High"].max() - plot_df["Low"].min()) * 0.015:
+        levels.append(("S", stop, "#26a69a", "#122b28"))
+
     used_y = []
     y_span = plot_df["High"].max() - plot_df["Low"].min()
 
@@ -231,8 +239,11 @@ def generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop
     ax.tick_params(axis="y", colors="#6e7787", labelsize=9, length=0)
     ax.set_xlim(-1, n + 2)
 
-    y_min = min(plot_df["Low"].min(), stop) * 0.96
-    y_max = max(plot_df["High"].max(), resistance) * 1.03
+    all_y = [plot_df["Low"].min(), plot_df["High"].max(), stop, resistance]
+    if next_res is not None:
+        all_y.append(next_res)
+    y_min = min(all_y) * 0.96
+    y_max = max(all_y) * 1.03
     ax.set_ylim(y_min, y_max)
 
     tick_indices = np.linspace(4, n - 5, 6, dtype=int)
@@ -260,9 +271,8 @@ def check_patterns_and_alert(ticker, sub_df, mcaps_cache):
     if len(sub_df) < 85:
         return
 
-    recent = sub_df.tail(85).reset_index(drop=True)
-    curr = recent.iloc[-1]
-    prev = recent.iloc[-2]
+    curr = sub_df.iloc[-1]
+    prev = sub_df.iloc[-2]
 
     # סינון 1: נפח מסחר יחסי ו-ATR יומי גדול מ-1%
     if curr["Rel_Vol"] < 1.15 or pd.isna(curr["ATR_Pct"]) or curr["ATR_Pct"] <= MIN_ATR_PCT:
@@ -272,6 +282,8 @@ def check_patterns_and_alert(ticker, sub_df, mcaps_cache):
     mcap = get_market_cap(ticker, mcaps_cache)
     if mcap < MIN_MARKET_CAP:
         return
+
+    recent = sub_df.tail(85).reset_index(drop=True)
 
     # תבנית 1: פריצת קו מגמה יורד (עד 85 נרות אחורה)
     search_window = recent.iloc[:-10]
@@ -299,7 +311,7 @@ def check_patterns_and_alert(ticker, sub_df, mcaps_cache):
                 if stop_lvl >= curr["Close"]:
                     stop_lvl = curr["Low"] * 0.98
 
-                plot_df = sub_df.tail(120).reset_index(drop=True)
+                plot_df = sub_df.tail(150).reset_index(drop=True)
                 offset = len(plot_df) - len(recent)
                 trend_coords = [(peak_idx + offset, peak_price), (curr_idx + offset, trend_resistance)]
 
@@ -315,38 +327,61 @@ def check_patterns_and_alert(ticker, sub_df, mcaps_cache):
                     mcap=mcap,
                     extra_label="Trend Drop",
                     extra_val=f"{drop_pct:.1f}%  •  {bars_count} bars",
-                    trend_coords=trend_coords
+                    trend_coords=trend_coords,
+                    is_box=False,
+                    next_res=None
                 )
-                return
 
-    # תבנית 2: פריצת מלבן / Darvas Box (30 נרות אחרונים)
-    box_df = recent.iloc[-31:-1]
-    box_high = box_df["High"].max()
-    box_low = box_df["Low"].min()
-    box_range_pct = ((box_high - box_low) / box_low) * 100
+    # תבנית 2: פריצת מלבן / Darvas Box (קצר 12-45 נרות או ארוך 50-170 נרות כמו WM)
+    box_windows = [
+        (15, 20.0),
+        (30, 22.0),
+        (60, 26.0),
+        (110, 30.0),
+        (160, 32.0),
+    ]
+    matched_box = None
+    for win_len, max_range in box_windows:
+        if len(sub_df) <= win_len + 1:
+            continue
+        box_df = sub_df.iloc[-(win_len + 1):-1]
+        box_high = box_df["High"].max()
+        box_low = box_df["Low"].min()
+        box_range_pct = ((box_high - box_low) / box_low) * 100
 
-    if box_range_pct <= 18.0 and prev["Close"] <= box_high and curr["Close"] > box_high:
-        stop_lvl = recent.iloc[-6:-1]["Low"].min()
+        if box_range_pct <= max_range and prev["Close"] <= box_high and curr["Close"] > box_high:
+            matched_box = (win_len, box_high, box_low, box_range_pct)
+
+    if matched_box is not None:
+        win_len, box_high, box_low, box_range_pct = matched_box
+        stop_lvl = sub_df.iloc[-6:-1]["Low"].min()
         if stop_lvl >= curr["Close"]:
             stop_lvl = box_low
-        target_lvl = curr["Close"] + (box_high - box_low) * 1.5
 
+        hist_180 = sub_df.tail(180)
+        higher_peaks = hist_180[hist_180["High"] > curr["Close"]]["High"]
+        next_res = float(higher_peaks.max()) if not higher_peaks.empty else None
+        target_lvl = next_res if next_res is not None else curr["Close"] + (box_high - box_low) * 1.5
+
+        plot_len = max(150, min(180, win_len + 20))
         send_alert(
             ticker=ticker,
             pattern_he="פריצת מלבן / דרווס בוקס",
             pattern_en="RECTANGLE / DARVAS BOX",
-            plot_df=sub_df.tail(120).reset_index(drop=True),
+            plot_df=sub_df.tail(plot_len).reset_index(drop=True),
             resistance=box_high,
             support=box_low,
             stop=stop_lvl,
             target=target_lvl,
             mcap=mcap,
             extra_label="Box Range",
-            extra_val=f"{box_range_pct:.1f}%  •  30 bars",
-            trend_coords=None
+            extra_val=f"{box_range_pct:.1f}%  •  {win_len} bars",
+            trend_coords=None,
+            is_box=True,
+            next_res=next_res
         )
 
-def send_alert(ticker, pattern_he, pattern_en, plot_df, resistance, support, stop, target, mcap, extra_label, extra_val, trend_coords):
+def send_alert(ticker, pattern_he, pattern_en, plot_df, resistance, support, stop, target, mcap, extra_label, extra_val, trend_coords, is_box=False, next_res=None):
     curr = plot_df.iloc[-1]
     price = curr["Close"]
     pct_above = ((price - resistance) / resistance) * 100
@@ -359,7 +394,7 @@ def send_alert(ticker, pattern_he, pattern_en, plot_df, resistance, support, sto
     rr = abs((target - price) / (price - stop)) if price != stop else 0
     atr_dot = "🟢" if atr < 3.0 else ("🟡" if atr < 5.5 else "🔴")
 
-    generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop, target, trend_coords)
+    generate_modern_chart(ticker, plot_df, pattern_en, resistance, support, stop, target, trend_coords, is_box=is_box, next_res=next_res)
 
     table_text = f"""```
 {pattern_en:<24} •  Daily
@@ -381,7 +416,9 @@ R : R         {rr:.2f}
         "embeds": [
             {
                 "title": f"🐍 {ticker} — {pattern_he} • Daily",
-                "description": f"**{ticker} פרץ תבנית {pattern_he} מעל התנגדות {resistance:.2f}**\n{table_text}\n[📊 פתח ב-TradingView](https://tradingview.com{ticker})",
+                "description": f"**{ticker} פרץ תבנית {pattern_he} מעל התנגדות {resistance:.2f}**
+{table_text}
+[📊 פתח ב-TradingView](https://www.tradingview.com/chart/?symbol={ticker})",
                 "color": 2278750,
                 "image": {"url": "attachment://chart.png"},
                 "footer": {"text": f"Massive Market Scanner • {curr['Date']} IL"}
