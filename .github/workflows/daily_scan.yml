@@ -2,9 +2,9 @@ name: Daily Stock Breakout Scanner
 
 on:
   schedule:
-    - cron: '0 8 * * 1-5'
-    - cron: '0 14 * * 1-5'
-    - cron: '15 21 * * 1-5'
+    - cron: '08 8 * * 1-5'
+    - cron: '08 13 * * 1-5'
+    - cron: '28 21 * * 1-5'
   workflow_dispatch:
 
 permissions:
@@ -43,7 +43,7 @@ jobs:
       - name: Save updated market data
         run: |
           git config user.name "Scanner Bot"
-          git config user.email "bot@://github.com"
+          git config user.email "bot@github.com"
           git add market_data.parquet market_caps.json sectors_cache.json || true
           git commit -m "Update daily stock data and caches" || exit 0
           git push
